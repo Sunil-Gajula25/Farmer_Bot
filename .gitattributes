@@ -1,0 +1,3 @@
+# GitHub Linguist overrides
+# Mark the frontend HTML as documentation so Python is detected as the primary language
+index.html linguist-documentation
