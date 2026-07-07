@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CropDoc — AI Crop Disease Detector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #F6FAF2;
+            --bg-dark: #E8F0E3;
+            --fg: #1B1B1B;
+            --muted: #5F6368;
+            --primary: #2E7D32;
+            --primary-light: #4CAF50;
+            --accent: #F9A825;
+            --accent-light: #FFB300;
+            --card: #FFFFFF;
+            --border: #C8E6C9;
+            --danger: #D32F2F;
+            --danger-light: #FFEBEE;
+            --success-light: #E8F5E9;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: var(--fg);
+            background: linear-gradient(160deg, #F9FAF7 0%, #F1F7EC 40%, #F9FAF7 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Outfit', sans-serif; }
+
+        /* Toast notifications */
+        .toast-container { position: fixed; top: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 12px; }
+        .toast {
+            padding: 16px 24px; border-radius: 14px; color: #fff; font-size: 14px; font-weight: 600;
+            transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-width: 360px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .toast.show { transform: translateX(0); }
+        .toast-warning { background: var(--accent); }
+        .toast-error { background: var(--danger); }
+        .toast-success { background: var(--primary); }
+
+        /* Crop cards grid styling */
+        .crop-card {
+            background: var(--card); border: 1.5px solid var(--border); border-radius: 20px;
+            padding: 24px 16px; text-align: center; cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); position: relative;
+            box-shadow: 0 4px 12px rgba(46, 125, 50, 0.03);
+        }
+        .crop-card:hover {
+            transform: translateY(-4px) scale(1.02);
+            border-color: var(--primary);
+            background: var(--success-light);
+            box-shadow: 0 12px 24px rgba(46, 125, 50, 0.08);
+        }
+        .crop-card.selected {
+            border-color: var(--primary);
+            background: var(--success-light);
+            box-shadow: 0 12px 24px rgba(46, 125, 50, 0.12);
+            outline: 2.5px solid var(--primary);
+            outline-offset: -2.5px;
+        }
+        .crop-icon { font-size: 38px; display: block; margin-bottom: 8px; }
+        .crop-name { font-weight: 700; font-size: 17px; color: var(--fg); }
+        .crop-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+        /* Upload zone card */
+        .upload-zone {
+            border: 2.5px dashed var(--border); border-radius: 24px; padding: 64px 32px;
+            text-align: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            background: rgba(255,255,255,0.6); position: relative;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.01);
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--primary); background: var(--success-light);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(46,125,50,0.06);
+        }
+        .upload-zone.has-image { padding: 0; border-style: solid; border-color: var(--primary); }
+
+        /* Scanning effect overlay */
+        .scan-container { position: relative; display: inline-block; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .scan-line {
+            position: absolute; left: 0; right: 0; height: 3px; z-index: 10;
+            background: linear-gradient(90deg, transparent, #4CAF50, transparent);
+            box-shadow: 0 0 16px #4CAF50, 0 0 32px rgba(76,175,80,0.4);
+            display: none;
+        }
+        .scan-overlay {
+            position: absolute; inset: 0; background: rgba(46,125,50,0.06);
+            display: none; z-index: 5;
+        }
+        @keyframes scanMove {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        .scanning .scan-line {
+            display: block !important;
+            animation: scanMove 2.5s ease-in-out infinite;
+        }
+        .scanning .scan-overlay {
+            display: block !important;
+        }
+
+        /* Floating data point logs */
+        .data-point {
+            position: absolute; background: rgba(27,27,27,0.9); color: #81C784;
+            font-family: monospace; font-size: 11px; padding: 4px 8px;
+            border-radius: 6px; pointer-events: none; z-index: 15; white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: dpFade 1.8s ease-out forwards;
+        }
+        @keyframes dpFade {
+            0% { opacity: 0; transform: translateY(8px); }
+            15% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-16px); }
+        }
+
+        /* Premium Result Card layouts */
+        .result-card {
+            background: var(--card); border-radius: 24px; padding: 32px;
+            box-shadow: 0 8px 30px rgba(46,125,50,0.04); border: 1.5px solid var(--border);
+            opacity: 0; transform: translateY(24px);
+            animation: cardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+
+        .confidence-bar { height: 10px; background: var(--bg-dark); border-radius: 10px; overflow: hidden; }
+        .confidence-fill {
+            height: 100%; border-radius: 10px; width: 0;
+            transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Severity indicators */
+        .severity-badge {
+            display: inline-block; padding: 6px 16px; border-radius: 30px;
+            font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
+        .severity-mild { background: #FEF3C7; color: #B45309; }
+        .severity-moderate { background: #FFEDD5; color: #C2410C; }
+        .severity-severe { background: #FEE2E2; color: #B91C1C; }
+        .severity-healthy { background: var(--success-light); color: var(--primary); }
+
+        /* Dynamic tabs */
+        .tab-btn {
+            padding: 10px 22px; border-radius: 12px; font-weight: 700; font-size: 13px;
+            border: 1.5px solid var(--border); background: transparent; cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); color: var(--muted);
+            display: flex; align-items: center; gap: 6px;
+        }
+        .tab-btn.active {
+            background: var(--primary); color: #fff; border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(46,125,50,0.2);
+        }
+        .tab-btn:hover:not(.active) { border-color: var(--primary); color: var(--primary); background: var(--success-light); }
+
+        /* Stepper steps */
+        .step-indicator { display: flex; align-items: center; gap: 8px; }
+        .step-dot {
+            width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 14px; border: 2px solid var(--border); color: var(--muted);
+            background: var(--card); transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.01);
+        }
+        .step-dot.active {
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: #fff; border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(46, 125, 50, 0.15), 0 6px 16px rgba(46, 125, 50, 0.2);
+        }
+        .step-dot.done {
+            background: var(--accent); color: #fff; border-color: var(--accent);
+            box-shadow: 0 6px 16px rgba(249, 168, 37, 0.2);
+        }
+        .step-line { flex: 1; height: 2px; background: var(--border); transition: background 0.3s; }
+        .step-line.done { background: var(--accent); }
+
+        .spot-overlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; border-radius: 20px; }
+
+        /* Button styles */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: #fff; border: none; padding: 14px 38px;
+            border-radius: 14px; font-size: 15px; font-weight: 700; cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            box-shadow: 0 4px 14px rgba(46,125,50,0.2);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(46,125,50,0.35);
+        }
+        .btn-primary:active { transform: translateY(0); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        .btn-outline {
+            background: transparent; color: var(--primary); border: 2px solid var(--primary);
+            padding: 12px 30px; border-radius: 14px; font-size: 14px; font-weight: 700;
+            cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .btn-outline:hover {
+            background: var(--primary); color: #fff;
+            box-shadow: 0 6px 18px rgba(46, 125, 50, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .how-step { text-align: center; padding: 24px 16px; transition: all 0.3s; }
+        .how-icon {
+            width: 68px; height: 68px; border-radius: 20px; display: flex; align-items: center;
+            justify-content: center; margin: 0 auto 16px; font-size: 26px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.03);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .how-step:hover .how-icon {
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+        }
+
+        @media print {
+            header, footer, #heroSection, .step-indicator, #step1, #step2, #qaSection, #downloadPdfBtn, button, .btn-outline, .toast-container, .fixed {
+                display: none !important;
+            }
+            body {
+                background: #fff !important;
+                color: #000 !important;
+                margin: 0 !important;
+                padding: 4mm !important;
+                font-size: 10.5px !important;
+            }
+            main {
+                box-shadow: none !important;
+                border: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                background: transparent !important;
+            }
+            #step3 {
+                display: block !important;
+            }
+            #step3Title {
+                font-size: 15px !important;
+                margin-bottom: 6px !important;
+                text-align: center !important;
+            }
+            .result-card {
+                border: 1px solid #e2ebd8 !important;
+                box-shadow: none !important;
+                background: #fff !important;
+                padding: 10px !important;
+                margin-bottom: 6px !important;
+            }
+            #printMetricsGrid {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr 1.25fr !important;
+                gap: 8px !important;
+                margin-bottom: 10px !important;
+            }
+            #printDetailsGrid {
+                display: grid !important;
+                grid-template-columns: 3fr 2fr !important;
+                gap: 12px !important;
+            }
+            .bg-white/80 {
+                padding: 6px 10px !important;
+                border-radius: 8px !important;
+                border: 1px solid #e2ebd8 !important;
+            }
+            #treatmentTabs {
+                display: none !important;
+            }
+            .tab-content {
+                display: block !important;
+                margin-top: 4px !important;
+            }
+            .tab-content::before {
+                font-weight: 800 !important;
+                text-transform: uppercase !important;
+                font-size: 8.5px !important;
+                color: var(--primary) !important;
+                margin-top: 4px !important;
+                margin-bottom: 1px !important;
+                display: block !important;
+            }
+            #tab-organic::before { content: "🌱 Organic Treatment:"; }
+            #tab-chemical::before { content: "🧪 Chemical Treatment:"; }
+            #tab-prevention::before { content: "🛡️ Prevention Advice:"; }
+            
+            li, p {
+                margin-bottom: 1px !important;
+                line-height: 1.2 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Ambient background glow elements -->
+    <div class="fixed -top-40 -left-40 w-96 h-96 rounded-full bg-[var(--primary)] opacity-[0.05] blur-[100px] pointer-events-none z-0"></div>
+    <div class="fixed top-1/3 -right-40 w-96 h-96 rounded-full bg-[var(--accent)] opacity-[0.05] blur-[100px] pointer-events-none z-0"></div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 backdrop-blur-md bg-white/70 border-b border-[#e2ebd8]/60 py-4 px-6 transition-all duration-300">
+        <div class="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg shadow-sm bg-gradient-to-tr from-[var(--primary)] to-[var(--primary-light)]">
+                    <i class="fa-solid fa-leaf"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-black tracking-tight leading-none text-slate-800" id="headerTitle">AI Farmer Assistant</h1>
+                    <p class="text-[10px] font-bold uppercase tracking-wider mt-0.5" id="headerSubtitle" style="color: var(--muted);">Smart Plant Disease Detector</p>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="hidden sm:flex items-center gap-2 text-xs font-semibold text-[var(--primary)] bg-[var(--success-light)] px-3 py-1.5 rounded-full border border-[#C8E6C9]/40">
+                    <i class="fa-solid fa-robot"></i>
+                    Powered by DeepSeek AI
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero + How It Works -->
+    <section class="px-6 pb-8" id="heroSection">
+        <div class="max-w-5xl mx-auto text-center">
+            <div id="heroTitle" class="flex flex-col items-center justify-center"></div>
+            <p class="text-base sm:text-lg mb-10 max-w-2xl mx-auto leading-relaxed" id="heroDesc" style="color: var(--muted);">
+                Upload a photo of the affected leaf or plant. Our AI analyzes color patterns, spots, and lesions to identify the disease and recommend treatment.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto">
+                <div class="how-step">
+                    <div class="how-icon" style="background: #FEF3C7; color: #92400E;"><i class="fa-solid fa-camera"></i></div>
+                    <p class="font-semibold text-sm">Select Crop & Upload Photo</p>
+                </div>
+                <div class="how-step">
+                    <div class="how-icon" style="background: #DBEAFE; color: #1E40AF;"><i class="fa-solid fa-microscope"></i></div>
+                    <p class="font-semibold text-sm">AI Analyzes Patterns</p>
+                </div>
+                <div class="how-step">
+                    <div class="how-icon" style="background: var(--success-light); color: var(--primary);"><i class="fa-solid fa-prescription-bottle-medical"></i></div>
+                    <p class="font-semibold text-sm">Get Diagnosis & Treatment</p>
+                </div>
+            </div>
+
+            <!-- Statistics Bar -->
+            <div class="max-w-3xl mx-auto mt-12 backdrop-blur-md bg-white/70 rounded-2xl p-6 border border-[#e2ebd8] shadow-md grid grid-cols-2 sm:grid-cols-4 gap-4 text-center relative overflow-hidden">
+                <div class="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-transparent via-[var(--primary)] to-transparent opacity-40"></div>
+                <div class="space-y-1">
+                    <span class="text-3xl font-black block text-[var(--primary)]">7</span>
+                    <span class="text-[10px] uppercase font-extrabold tracking-widest block" style="color: var(--muted);">Supported Crops</span>
+                </div>
+                <div class="space-y-1 sm:border-l border-[#e2ebd8]/60">
+                    <span class="text-3xl font-black block text-[var(--primary)]">150+</span>
+                    <span class="text-[10px] uppercase font-extrabold tracking-widest block" style="color: var(--muted);">Diseases</span>
+                </div>
+                <div class="space-y-1 border-t sm:border-t-0 sm:border-l border-[#e2ebd8]/60 pt-3 sm:pt-0">
+                    <span class="text-3xl font-black block text-[var(--primary)]">98%</span>
+                    <span class="text-[10px] uppercase font-extrabold tracking-widest block" style="color: var(--muted);">Accuracy</span>
+                </div>
+                <div class="space-y-1 border-t sm:border-t-0 sm:border-l border-[#e2ebd8]/60 pt-3 sm:pt-0">
+                    <span class="text-3xl font-black block text-[var(--primary)]">5s</span>
+                    <span class="text-[10px] uppercase font-extrabold tracking-widest block" style="color: var(--muted);">Avg. Speed</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main App -->
+    <main class="px-6 pb-16">
+        <div class="max-w-3xl mx-auto">
+
+            <!-- Step Indicator -->
+            <div class="step-indicator max-w-xs mx-auto mb-10">
+                <div class="step-dot active" id="dot1">1</div>
+                <div class="step-line" id="line1"></div>
+                <div class="step-dot" id="dot2">2</div>
+                <div class="step-line" id="line2"></div>
+                <div class="step-dot" id="dot3">3</div>
+            </div>
+
+            <!-- Step 1: Crop Selection -->
+            <section id="step1">
+                <h3 class="text-center text-xl mb-6" id="step1Title" style="font-weight:700; color: var(--fg);">What crop is affected?</h3>
+                <div class="space-y-6" id="cropGrid"></div>
+                <div class="text-center mt-8">
+                    <button class="btn-primary" id="toStep2Btn" disabled onclick="goToStep(2)">
+                        Next: Upload Image <i class="fa-solid fa-arrow-right ml-2"></i>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Step 2: Upload -->
+            <section id="step2" style="display:none;">
+                <div class="flex items-center gap-3 mb-6">
+                    <button class="btn-outline text-sm py-2 px-4" onclick="goToStep(1)">
+                        <i class="fa-solid fa-arrow-left mr-1"></i> Back
+                    </button>
+                    <h3 class="text-xl" id="step2Title" style="font-weight:700;">Upload a photo of the affected part</h3>
+                </div>
+                <p class="text-sm mb-4" id="step2TipText" style="color: var(--muted);">
+                    <i class="fa-solid fa-lightbulb mr-1" style="color: var(--accent);"></i>
+                    Tip: Take a clear, close-up photo of the affected leaf, stem, or fruit in good lighting.
+                </p>
+                <div class="upload-zone" id="uploadZone">
+                    <input type="file" accept="image/*" id="fileInput" style="display:none;">
+                    <div id="uploadPlaceholder">
+                        <i class="fa-solid fa-cloud-arrow-up text-4xl mb-4" style="color: var(--primary-light);"></i>
+                        <p class="font-semibold text-lg mb-1">Drag & drop or click to upload</p>
+                        <p class="text-sm mb-2" style="color: var(--muted);">JPG, PNG — Max 10MB</p>
+                    </div>
+                    <div id="previewContainer" style="display:none; position:relative;">
+                        <div class="scan-container" id="scanContainer">
+                            <img id="previewImg" style="max-width:100%; max-height:450px; display:block; border-radius:18px;">
+                            <div class="scan-overlay" id="scanOverlay"></div>
+                            <div class="scan-line" id="scanLine"></div>
+                            <canvas class="spot-overlay" id="spotCanvas"></canvas>
+                        </div>
+                        <p id="scanStatus" class="text-center mt-3 text-sm font-medium" style="color: var(--primary); display:none;"></p>
+                        
+                        <!-- AI Loading steps progress list -->
+                        <div id="aiLoadingSteps" class="mt-6 max-w-xs mx-auto space-y-3 bg-[var(--bg)] p-4 rounded-2xl border border-[var(--border)] text-left" style="display:none;">
+                            <div class="flex items-center gap-3 text-sm" id="loadStep1">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--border)] text-[var(--muted)]"><i class="fa-solid fa-circle-notch animate-spin"></i></span>
+                                <span class="font-semibold text-gray-500">Upload Complete</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-sm" id="loadStep2">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-200 text-gray-400">2</span>
+                                <span class="font-semibold text-gray-400">AI Processing</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-sm" id="loadStep3">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-200 text-gray-400">3</span>
+                                <span class="font-semibold text-gray-400">Disease Detection</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-sm" id="loadStep4">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-200 text-gray-400">4</span>
+                                <span class="font-semibold text-gray-400">Generating Report</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Demo Leaves Selector -->
+                <div class="mt-6 border-t border-[var(--border)] pt-5 text-center" id="demoLeavesSelector">
+                    <p class="text-xs font-bold mb-3" style="color: var(--muted);"><i class="fa-solid fa-wand-magic-sparkles text-[var(--primary)] mr-1"></i> Or test instantly with a demo crop leaf:</p>
+                    <div class="flex flex-wrap justify-center gap-3">
+                        <button class="btn-outline py-2 px-4 text-xs flex items-center gap-1.5" onclick="loadDemoLeaf('tomato')">
+                            🍅 Tomato Leaf Demo
+                        </button>
+                        <button class="btn-outline py-2 px-4 text-xs flex items-center gap-1.5" onclick="loadDemoLeaf('banana')">
+                            🍌 Banana Leaf Demo
+                        </button>
+                        <button class="btn-outline py-2 px-4 text-xs flex items-center gap-1.5" onclick="loadDemoLeaf('potato')">
+                            🥔 Potato Leaf Demo
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 mt-6" id="uploadActions" style="display:none;">
+                    <button class="btn-outline text-sm" onclick="resetUpload()">
+                        <i class="fa-solid fa-rotate-right mr-1"></i> Change Photo
+                    </button>
+                    <button class="btn-primary" id="analyzeBtn" onclick="startAnalysis()">
+                        <i class="fa-solid fa-robot mr-2"></i> Analyze with AI
+                    </button>
+                </div>
+            </section>
+
+            <section id="step3" style="display:none;">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+                    <h3 class="text-2xl" id="step3Title" style="font-weight:900; color: var(--primary);">AI Diagnosis Report</h3>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button class="btn-outline text-sm py-2 px-4 flex items-center gap-2" id="downloadPdfBtn" onclick="downloadPDFReport()">
+                            <i class="fa-solid fa-file-pdf text-red-600"></i> Download PDF Report
+                        </button>
+                        <button class="btn-outline text-sm py-2 px-4" onclick="resetApp()">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> Analyze Another Image
+                        </button>
+                    </div>
+                </div>
+                <div id="resultsContainer" class="space-y-5"></div>
+            </section>
+
+            <!-- Q&A Assistant Section -->
+            <section class="mt-12 pt-12 border-t border-[var(--border)]" id="qaSection">
+                <div class="bg-[var(--card)] rounded-2xl p-6 md:p-8 border border-[var(--border)] shadow-sm">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background: var(--accent);">
+                            <i class="fa-solid fa-comments"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-bold" style="color: var(--fg);">Crop AI Assistant</h4>
+                            <p class="text-xs" style="color: var(--muted);">Ask questions about diseases, fertilizers, pesticides, irrigation, and crop management.</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="text" id="qaInput" placeholder="Ask anything about your crop..." class="flex-1 px-4 py-3 rounded-xl border-2 border-[var(--border)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors duration-200">
+                        <button class="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 whitespace-nowrap" id="askDoctorBtn" onclick="askCropDoctor()">
+                            <i class="fa-solid fa-paper-plane"></i> Ask Assistant
+                        </button>
+                    </div>
+                    <!-- Quick suggestions -->
+                    <div class="flex flex-wrap gap-2 mt-3 text-xs">
+                        <span class="text-xs font-semibold self-center" style="color: var(--muted);">Try asking:</span>
+                        <button class="bg-[var(--bg-dark)] hover:bg-[var(--border)] text-[var(--fg)] text-xs py-1 px-3 rounded-full transition-colors" onclick="fillAndAsk('What causes Early Blight?')">What causes Early Blight?</button>
+                        <button class="bg-[var(--bg-dark)] hover:bg-[var(--border)] text-[var(--fg)] text-xs py-1 px-3 rounded-full transition-colors" onclick="fillAndAsk('Which fungicide is best?')">Which fungicide is best?</button>
+                        <button class="bg-[var(--bg-dark)] hover:bg-[var(--border)] text-[var(--fg)] text-xs py-1 px-3 rounded-full transition-colors" onclick="fillAndAsk('When should I spray?')">When should I spray?</button>
+                        <button class="bg-[var(--bg-dark)] hover:bg-[var(--border)] text-[var(--fg)] text-xs py-1 px-3 rounded-full transition-colors" onclick="fillAndAsk('How much fertilizer should I use?')">How much fertilizer should I use?</button>
+                    </div>
+                    <div id="qaResponseContainer" class="mt-6 p-5 rounded-xl border border-[var(--border)] bg-[var(--bg)] hidden" style="max-height: 400px; overflow-y: auto;">
+                        <div id="qaResponseText" class="text-sm leading-relaxed prose prose-sm max-w-none text-gray-800"></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="px-6 py-12 border-t border-[var(--border)] bg-white text-sm" style="color: var(--muted);">
+        <div class="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+            <div class="md:col-span-2 space-y-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm" style="background: var(--primary);">
+                        <i class="fa-solid fa-leaf"></i>
+                    </div>
+                    <span class="font-bold text-lg text-[var(--primary)]">CropDoc AI</span>
+                </div>
+                <p class="text-xs max-w-sm">AI-Powered Crop Health Platform</p>
+                <p class="text-xs leading-relaxed" style="color: var(--muted);">
+                    <i class="fa-solid fa-triangle-exclamation mr-1 text-[var(--accent)]"></i>
+                    CropDoc is an AI-assisted tool for preliminary identification only. Always consult a local agricultural expert or pathologist for confirmed diagnosis and treatment.
+                </p>
+            </div>
+            <div>
+                <h5 class="font-bold text-[var(--primary)] mb-3 uppercase tracking-wider text-xs">Features</h5>
+                <ul class="space-y-2 text-xs">
+                    <li><a href="#" onclick="event.preventDefault(); goToStep(1);" class="hover:text-[var(--primary)] transition-colors">AI Diagnosis</a></li>
+                    <li><a href="#" onclick="event.preventDefault();" class="hover:text-[var(--primary)] transition-colors">Treatment Recommendations</a></li>
+                    <li><a href="#" onclick="event.preventDefault(); document.getElementById('qaSection').scrollIntoView({behavior:'smooth'});" class="hover:text-[var(--primary)] transition-colors">Crop AI Assistant</a></li>
+                </ul>
+            </div>
+            <div>
+                <h5 class="font-bold text-[var(--primary)] mb-3 uppercase tracking-wider text-xs">Support</h5>
+                <ul class="space-y-2 text-xs">
+                    <li><a href="#" onclick="event.preventDefault(); showToast('Contact support: support@cropdoc.ai', 'success');" class="hover:text-[var(--primary)] transition-colors">Contact Support</a></li>
+                    <li><a href="#" onclick="event.preventDefault(); showToast('Privacy Policy: Your uploaded photos are processed locally and only used for disease analysis.', 'success');" class="hover:text-[var(--primary)] transition-colors">Privacy Policy</a></li>
+                    <li><a href="#" onclick="event.preventDefault(); showToast('Terms of Service: CropDoc is an AI advisory tool. Users should consult professionals for critical diagnosis.', 'success');" class="hover:text-[var(--primary)] transition-colors">Terms of Service</a></li>
+                    <li class="text-gray-400">Version 1.0.4</li>
+                </ul>
+            </div>
+        </div>
+        <div class="max-w-5xl mx-auto pt-6 border-t border-[var(--border)] text-center text-xs text-gray-400">
+            &copy; 2026 CropDoc AI. Built with care for farmers everywhere.
+        </div>
+    </footer>
+
+    <!-- Hidden Canvas for Analysis -->
+    <canvas id="analysisCanvas" style="display:none;"></canvas>
+
+<script>
+/* ===================== CONFIGURATION ===================== */
+const CONFIG = {
+    meta: {
+        title: "AI Farmer Assistant | Plant Health Platform",
+        subtitle: "AI-Powered Smart Farming Platform",
+        offlineNotice: "Powered by DeepSeek AI"
+    },
+    hero: {
+        title: `<div class="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-extrabold uppercase tracking-widest rounded-full border border-emerald-100/60 shadow-sm mb-6 hover:bg-emerald-100 transition-colors duration-300">
+                    <span class="flex h-2 w-2 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    MobileNetV2 Plant Disease Diagnostic Engine
+                </div>
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl tracking-tight mb-5 font-black text-slate-800 leading-[1.1] font-sans">
+                    AI-Powered Smart Farming <br class="hidden sm:inline">
+                    <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#2E7D32] via-[#388E3C] to-[#66BB6A] drop-shadow-sm font-extrabold">for Every Farmer</span>
+                </h1>`,
+        description: "Ask farming questions, detect plant diseases, get fertilizer recommendations, weather guidance, pest control advice, and crop recommendations—all powered by AI"
+    },
+    howItWorks: [
+        { title: "Select Crop & Upload Photo", icon: "fa-camera", bg: "#FEF3C7", color: "#92400E" },
+        { title: "AI Analyzes Patterns", icon: "fa-microscope", bg: "#DBEAFE", color: "#1E40AF" },
+        { title: "Get Diagnosis & Treatment", icon: "fa-prescription-bottle-medical", bg: "var(--success-light)", color: "var(--primary)" }
+    ],
+    steps: {
+        step1Header: "What crop is affected?",
+        step2Header: "Upload a photo of the affected part",
+        step2Tip: "Take a clear, close-up photo of the affected leaf, stem, or fruit in good lighting.",
+        step3Header: "AI Diagnosis Report"
+    },
+    footer: {
+        disclaimer: "CropDoc is an AI-assisted tool for preliminary identification only. Always consult a local agricultural expert or pathologist for confirmed diagnosis and treatment.",
+        credit: "Built with care for farmers everywhere."
+    }
+};
+
+function applyConfig() {
+    document.title = CONFIG.meta.title;
+    document.getElementById('headerTitle').textContent = "AI Farmer Assistant";
+    document.getElementById('headerSubtitle').textContent = CONFIG.meta.subtitle;
+    document.getElementById('heroTitle').innerHTML = CONFIG.hero.title;
+    document.getElementById('heroDesc').textContent = CONFIG.hero.description;
+    
+    const howSteps = document.querySelectorAll('.how-step');
+    CONFIG.howItWorks.forEach((step, idx) => {
+        if (howSteps[idx]) {
+            const iconContainer = howSteps[idx].querySelector('.how-icon');
+            iconContainer.innerHTML = `<i class="fa-solid ${step.icon}"></i>`;
+            iconContainer.style.background = step.bg;
+            iconContainer.style.color = step.color;
+            howSteps[idx].querySelector('p').textContent = step.title;
+        }
+    });
+    
+    document.getElementById('step1Title').textContent = CONFIG.steps.step1Header;
+    document.getElementById('step2Title').textContent = CONFIG.steps.step2Header;
+    document.getElementById('step2TipText').innerHTML = `<i class="fa-solid fa-lightbulb mr-1" style="color: var(--accent);"></i> Tip: ${CONFIG.steps.step2Tip}`;
+    document.getElementById('step3Title').textContent = CONFIG.steps.step3Header;
+    
+    const fd = document.getElementById('footerDisclaimer');
+    if (fd) fd.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1" style="color: var(--accent);"></i> ${CONFIG.footer.disclaimer}`;
+    const fc = document.getElementById('footerCredit');
+    if (fc) fc.textContent = CONFIG.footer.credit;
+}
+
+/* ===================== STATE ===================== */
+let selectedCrop = null;
+let uploadedImageSrc = null;
+let selectedLanguage = 'English';
+
+
+
+/* ===================== CROP DATA ===================== */
+const crops = [
+    { id: 'banana', name: 'Banana', icon: '🍌', category: 'Fruit Crops', color: '#F7D070' },
+    { id: 'orange', name: 'Orange', icon: '🍊', category: 'Fruit Crops', color: '#FFA500' },
+    { id: 'papaya', name: 'Papaya', icon: '🥭', category: 'Fruit Crops', color: '#FF7F50' },
+    { id: 'tomato', name: 'Tomato', icon: '🍅', category: 'Vegetable Crops', color: '#E53E3E' },
+    { id: 'chili', name: 'Chili', icon: '🌶️', category: 'Vegetable Crops', color: '#C53030' },
+    { id: 'potato', name: 'Potato', icon: '🥔', category: 'Vegetable Crops', color: '#9C6B30' },
+    { id: 'groundnut', name: 'Groundnut', icon: '🥜', category: 'Oilseed Crops', color: '#D2B48C' }
+];
+
+/* ===================== DISEASE DATABASE ===================== */
+const diseaseDB = {
+    healthy: {
+        name: 'Healthy Plant', severity: 'Healthy',
+        colorFP: { green: 72, yellow: 5, brown: 3, black: 1, white: 2, orange: 2 },
+        spotProfile: { count: 'none', size: 0 },
+        varianceRange: [15, 35],
+        description: 'Your plant appears healthy with no visible signs of disease. Keep up good farming practices.',
+        symptoms: ['No visible lesions or spots', 'Leaves have uniform green color', 'Normal growth pattern'],
+        chemical: ['No treatment needed'],
+        organic: ['Continue regular watering schedule', 'Maintain soil health with compost', 'Monitor periodically for early signs'],
+        prevention: ['Crop rotation', 'Balanced fertilization', 'Proper irrigation management'],
+        recoveryTime: 'N/A',
+        immediateAction: 'No immediate action required. Continue regular maintenance.'
+    },
+    tomato: [
+        {
+            name: 'Tomato Early Blight', severity: 'Moderate',
+            colorFP: { green: 38, yellow: 18, brown: 28, black: 6, white: 3, orange: 7 },
+            spotProfile: { count: 'few', size: 3.5 },
+            varianceRange: [40, 60],
+            description: 'Early blight caused by Alternaria solani produces dark brown spots with concentric rings (target-like pattern) on older leaves first.',
+            symptoms: ['Brown circular spots with concentric rings', 'Yellowing around spots', 'Starts from lower leaves moving up', 'Premature leaf drop'],
+            chemical: ['Mancozeb 75% WP — 2.5g/liter, spray at 10-day intervals', 'Chlorothalonil 75% WP — 2g/liter', 'Azoxystrobin 23% SC — 1ml/liter'],
+            organic: ['Neem oil spray — 5ml/liter with soap', 'Copper-based bactericide spray', 'Remove and destroy infected leaves', 'Apply Trichoderma viride to soil'],
+            prevention: ['Crop rotation with non-solanaceous crops', 'Ensure good air circulation between plants', 'Avoid overhead irrigation', 'Use resistant varieties'],
+            recoveryTime: '7-14 Days',
+            immediateAction: 'Prune infected lower leaves and apply organic copper fungicide spray within 24 hours.'
+        },
+        {
+            name: 'Tomato Late Blight', severity: 'Severe',
+            colorFP: { green: 30, yellow: 8, brown: 20, black: 22, white: 10, orange: 4 },
+            spotProfile: { count: 'few', size: 5 },
+            varianceRange: [50, 70],
+            description: 'Late blight caused by Phytophthora infestans is a devastating disease. Dark water-soaked lesions appear suddenly and spread rapidly in cool, moist conditions.',
+            symptoms: ['Dark water-soaked lesions on leaves', 'White fuzzy growth on leaf undersides in humid conditions', 'Rapid browning and wilting', 'Can destroy entire crop in days'],
+            chemical: ['Metalaxyl + Mancozeb — 2.5g/liter', 'Cymoxanil + Mancozeb — 3g/liter', 'Fenamidone + Mancozeb — 2.5g/liter'],
+            organic: ['Copper hydroxide spray — 2g/liter', 'Remove all infected plants immediately', 'Destroy crop debris after harvest', 'Improve drainage to reduce humidity'],
+            prevention: ['Avoid planting in poorly drained areas', 'Do not use infected seed', 'Monitor weather — high risk during cool wet periods', 'Destroy volunteer plants'],
+            recoveryTime: '14-21 Days',
+            immediateAction: 'Uproot severely infected plants immediately; spray remaining crops with Metalaxyl.'
+        },
+        {
+            name: 'Tomato Leaf Curl Virus', severity: 'Severe',
+            colorFP: { green: 32, yellow: 42, brown: 8, black: 2, white: 4, orange: 12 },
+            spotProfile: { count: 'none', size: 0 },
+            varianceRange: [30, 50],
+            description: 'Tomato Leaf Curl Virus (ToLCV) is spread by whiteflies. Leaves curl upward, turn yellow, and become leathery. Plant stunting is common.',
+            symptoms: ['Upward curling of leaves', 'Yellowing of leaf margins and veins', 'Stunted plant growth', 'Small, misshapen fruits'],
+            chemical: ['Imidacloprid 17.8% SL — 0.3ml/liter to control whiteflies', 'Thiamethoxam 25% WG — 0.2g/liter', 'Dimethoate 30% EC — 1ml/liter'],
+            organic: ['Remove and destroy infected plants', 'Yellow sticky traps for whiteflies', 'Neem oil spray — 5ml/liter', 'Apply reflective mulch to repel whiteflies'],
+            prevention: ['Use virus-resistant varieties', 'Control whitefly populations early', 'Keep field weed-free', 'Maintain buffer zones with non-host crops'],
+            recoveryTime: 'Recovery unlikely (manage spread)',
+            immediateAction: 'Set up yellow sticky traps and spray Imidacloprid to control whitefly vectors.'
+        },
+        {
+            name: 'Septoria Leaf Spot', severity: 'Mild',
+            colorFP: { green: 45, yellow: 10, brown: 14, black: 16, white: 8, orange: 2 },
+            spotProfile: { count: 'many', size: 1.5 },
+            varianceRange: [45, 65],
+            description: 'Septoria leaf spot caused by Septoria lycopersici produces small, circular dark spots with tiny black fruiting bodies in the center.',
+            symptoms: ['Small circular spots (2-3mm) with dark borders', 'Tiny black dots (pycnidia) in spot centers', 'Yellowing of surrounding leaf area', 'Progresses from bottom to top'],
+            chemical: ['Mancozeb 75% WP — 2.5g/liter', 'Chlorothalonil 75% WP — 2g/liter', 'Azoxystrobin 23% SC — 1ml/liter'],
+            organic: ['Copper sulfate spray — 1g/liter', 'Remove infected lower leaves', 'Avoid wetting foliage during irrigation', 'Apply compost tea as foliar spray'],
+            prevention: ['3-year crop rotation', 'Stake plants for better air flow', 'Mulch around base to prevent soil splash', 'Use certified disease-free seeds'],
+            recoveryTime: '7-10 Days',
+            immediateAction: 'Prune affected leaves from base and avoid overhead watering.'
+        }
+    ],
+    potato: [
+        {
+            name: 'Potato Early Blight', severity: 'Moderate',
+            colorFP: { green: 36, yellow: 20, brown: 30, black: 5, white: 3, orange: 6 },
+            spotProfile: { count: 'few', size: 3.5 },
+            varianceRange: [40, 60],
+            description: 'Early blight on potato caused by Alternaria solani produces dark brown lesions with concentric rings on lower leaves, leading to premature defoliation.',
+            symptoms: ['Dark brown circular spots with target-like rings', 'Yellowing around lesions', 'Starts on older lower leaves', 'Can affect tubers causing dark leathery spots'],
+            chemical: ['Mancozeb 75% WP — 2.5g/liter', 'Chlorothalonil 75% WP — 2g/liter', 'Azoxystrobin 23% SC — 1ml/liter'],
+            organic: ['Copper spray — 2g/liter', 'Remove infected foliage', 'Neem oil spray', 'Apply biological fungicides (Trichoderma)'],
+            prevention: ['Hill up potatoes to protect tubers', 'Crop rotation — 3 year minimum', 'Adequate potassium fertilization', 'Destroy volunteer plants'],
+            recoveryTime: '7-14 Days',
+            immediateAction: 'Apply Mancozeb spray and ensure balanced potassium fertilizing.'
+        },
+        {
+            name: 'Potato Late Blight', severity: 'Severe',
+            colorFP: { green: 28, yellow: 8, brown: 18, black: 25, white: 14, orange: 4 },
+            spotProfile: { count: 'few', size: 5.5 },
+            varianceRange: [50, 70],
+            description: 'Potato late blight caused by Phytophthora infestans is the most destructive potato disease. Rapidly spreading dark water-soaked lesions can destroy entire fields in days.',
+            symptoms: ['Dark water-soaked lesions on leaf tips and edges', 'White fuzzy growth on undersides in humid weather', 'Brown to black firm rot in tubers', 'Foul smell in severely infected tubers'],
+            chemical: ['Metalaxyl + Mancozeb — 2.5g/liter', 'Cymoxanil + Mancozeb — 3g/liter', 'Fenamidone + Mancozeb — 2.5g/liter'],
+            organic: ['Copper hydroxide spray — 2g/liter', 'Destroy infected plants immediately', 'Do not harvest from infected areas', 'Ensure good drainage'],
+            prevention: ['Use certified disease-free seed tubers', 'Avoid planting in low-lying wet areas', 'Proper hilling to protect tubers', 'Destroy cull piles and volunteers'],
+            recoveryTime: '14-21 Days',
+            immediateAction: 'Harvest mature tubers early, remove infected canopy, and spray cymoxanil.'
+        },
+        {
+            name: 'Black Scurf', severity: 'Mild',
+            colorFP: { green: 25, yellow: 5, brown: 40, black: 25, white: 2, orange: 3 },
+            spotProfile: { count: 'many', size: 2 },
+            varianceRange: [45, 65],
+            description: 'Black scurf caused by Rhizoctonia solani produces dark brown to black hard crusty patches on tuber surfaces. Also causes stem cankers below ground.',
+            symptoms: ['Black crusty patches on tuber skin', 'Does not penetrate into flesh', 'Brown cankers on underground stems', 'Stunted growth in severe cases'],
+            chemical: ['Seed treatment with Carbendazim 50% WP — 2g/kg seed', 'Mancozeb 75% WP soil drench', 'Pencycuron 25% EC — 2ml/liter at planting'],
+            organic: ['Treat seed tubers with Trichoderma viride', 'Plant in well-drained soil', 'Avoid excessive irrigation', 'Use compost to boost soil biology'],
+            prevention: ['Use clean certified seed', 'Crop rotation with cereals', 'Avoid planting too deep', 'Harvest when soil is not wet'],
+            recoveryTime: '10-20 Days (tuber cosmetic effect)',
+            immediateAction: 'Use seed tuber treatment with Carbendazim before planting next cycle.'
+        }
+    ],
+    chili: [
+        {
+            name: 'Anthracnose', severity: 'Moderate',
+            colorFP: { green: 30, yellow: 10, brown: 35, black: 15, white: 3, orange: 7 },
+            spotProfile: { count: 'few', size: 4 },
+            varianceRange: [45, 65],
+            description: 'Anthracnose caused by Colletotrichum spp. produces dark, sunken lesions on chili fruits with pinkish spore masses in wet conditions.',
+            symptoms: ['Dark sunken circular spots on fruits', 'Pinkish-orange spore masses in center of spots', 'Fruits may drop prematurely', 'Also causes leaf spots with dark margins'],
+            chemical: ['Mancozeb 75% WP — 2.5g/liter', 'Carbendazim 50% WP — 1g/liter', 'Azoxystrobin 23% SC — 1ml/liter'],
+            organic: ['Neem oil spray — 5ml/liter', 'Copper hydroxide spray', 'Remove infected fruits immediately', 'Apply Trichoderma viride to soil'],
+            prevention: ['Avoid overhead irrigation', 'Pick fruits regularly to reduce infection source', 'Crop rotation', 'Use resistant varieties'],
+            recoveryTime: '10-15 Days',
+            immediateAction: 'Discard spotted fruits immediately and spray Azoxystrobin fungicide.'
+        },
+        {
+            name: 'Chili Leaf Curl Virus', severity: 'Severe',
+            colorFP: { green: 30, yellow: 44, brown: 8, black: 2, white: 4, orange: 12 },
+            spotProfile: { count: 'none', size: 0 },
+            varianceRange: [28, 48],
+            description: 'Chili leaf curl virus transmitted by whiteflies causes severe upward curling of leaves, yellowing, and stunted growth. Fruit set is heavily reduced.',
+            symptoms: ['Severe upward curling of leaves', 'Interveinal yellowing', 'Stunted bushy appearance', 'Very few or no fruits set'],
+            chemical: ['Imidacloprid 17.8% SL — 0.3ml/liter for whitefly control', 'Thiamethoxam 25% WG — 0.2g/liter', 'Dimethoate 30% EC — 1ml/liter'],
+            organic: ['Remove and destroy infected plants', 'Yellow sticky traps for whiteflies', 'Neem oil spray — 5ml/liter weekly', 'Apply reflective mulch'],
+            prevention: ['Use virus-resistant varieties', 'Control whitefly populations from seedling stage', 'Keep nursery area whitefly-free', 'Maintain weed-free surroundings'],
+            recoveryTime: 'Recovery unlikely (manage spread)',
+            immediateAction: 'Uproot infected plants and apply Thiamethoxam to control whiteflies.'
+        },
+        {
+            name: 'Powdery Mildew', severity: 'Mild',
+            colorFP: { green: 28, yellow: 12, brown: 4, black: 1, white: 45, orange: 2 },
+            spotProfile: { count: 'none', size: 0 },
+            varianceRange: [22, 42],
+            description: 'Powdery mildew on chili produces white powdery coating on leaf surfaces, stems, and sometimes fruits. Thrives in warm dry days and cool nights.',
+            symptoms: ['White powdery patches on upper leaf surface', 'Patches start small and expand', 'Leaves may curl, yellow, and drop', 'Reduced photosynthesis and yield'],
+            chemical: ['Sulfur 80% WP — 3g/liter', 'Hexaconazole 5% EC — 2ml/liter', 'Propiconazole 25% EC — 1ml/liter'],
+            organic: ['Milk spray — 1:10 with water', 'Baking soda spray — 5g/liter with few drops soap', 'Neem oil spray', 'Improve plant spacing for air flow'],
+            prevention: ['Adequate plant spacing', 'Avoid excessive nitrogen', 'Choose mildew-resistant varieties', 'Remove and destroy infected debris'],
+            recoveryTime: '7-14 Days',
+            immediateAction: 'Spray wettable sulfur or organic neem oil to infected foliage.'
+        }
+    ],
+    banana: [
+        {
+            name: 'Banana Bunchy Top Virus', severity: 'Severe',
+            colorFP: { green: 30, yellow: 45, brown: 10, black: 2, white: 3, orange: 8 },
+            spotProfile: { count: 'none', size: 0 },
+            varianceRange: [30, 50],
+            description: 'Banana Bunchy Top Virus (BBTV) causes leaves to become narrow, short, and bunched at the top of the plant. Margins turn yellow and wavy.',
+            symptoms: ['Narrow, short, upright leaves', 'Bunched rosette appearance at top', 'Dark green J-streaks on leaf veins', 'Stunted growth and no fruit set'],
+            chemical: ['Apply systemic insecticide (e.g. Imidacloprid) to control aphid vector Pentalonia nigronervosa'],
+            organic: ['Uproot and bury/burn infected plants immediately', 'Neem oil spray to deter aphids', 'Inject plant with kerosene to kill it before removal'],
+            prevention: ['Use tissue-cultured disease-free planting material', 'Control aphids early', 'Establish quarantine zones'],
+            recoveryTime: 'Recovery unlikely (remove infected plants)',
+            immediateAction: 'Uproot infected plant immediately and treat with insecticide to kill aphids.'
+        },
+        {
+            name: 'Panama Disease (Fusarium Wilt)', severity: 'Severe',
+            colorFP: { green: 25, yellow: 50, brown: 15, black: 3, white: 2, orange: 5 },
+            spotProfile: { count: 'none', size: 0 },
+            varianceRange: [25, 45],
+            description: 'Panama disease caused by Fusarium oxysporum f. sp. cubense is a soil-borne fungal pathogen causing leaf yellowing, wilting, and splitting of the pseudostem base.',
+            symptoms: ['Yellowing of lower leaf margins first', 'Leaves collapse at petiole and hang down', 'Splitting of pseudostem base', 'Vascular discoloration when cut'],
+            chemical: ['No effective chemical control once infected; soil drenching with carbendazim has limited efficacy'],
+            organic: ['Apply bioagents like Trichoderma viride and Pseudomonas fluorescens', 'Incorporate neem cake in soil', 'Incorporate organic matter to suppress fungal spores'],
+            prevention: ['Plant resistant cultivars (Cavendish)', 'Avoid movement of infected soil and water', 'Fallow or rotate with paddy'],
+            recoveryTime: 'Cannot recover (soil-borne pathogen)',
+            immediateAction: 'Isolate the affected area, avoid watering it, and apply lime to the soil.'
+        }
+    ],
+    orange: [
+        {
+            name: 'Citrus Canker', severity: 'Moderate',
+            colorFP: { green: 35, yellow: 15, brown: 32, black: 5, white: 4, orange: 9 },
+            spotProfile: { count: 'many', size: 3 },
+            varianceRange: [45, 65],
+            description: 'Citrus canker caused by Xanthomonas axonopodis pv. citri causes raised, corky, brown necrotic lesions surrounded by yellow halos on leaves, stems, and fruits.',
+            symptoms: ['Raised corky lesions on leaves and fruit', 'Yellow halo surrounding brown center lesions', 'Premature leaf and fruit drop', 'Twigs dieback in severe cases'],
+            chemical: ['Copper oxychloride 50% WP — 3g/liter, spray at flush periods', 'Streptocycline — 0.5g/liter at 15-day intervals'],
+            organic: ['Neem oil spray to control leaf miner vectors', 'Pruning of affected twigs during dry season', 'Copper hydroxide foliar sprays'],
+            prevention: ['Plant windbreaks around orchard', 'Use disease-free nursery stock', 'Sanitize pruning tools between trees'],
+            recoveryTime: '14-28 Days (manage symptoms)',
+            immediateAction: 'Prune infected twigs and spray Copper Oxychloride combined with Streptocycline.'
+        }
+    ],
+    papaya: [
+        {
+            name: 'Papaya Ringspot Virus', severity: 'Severe',
+            colorFP: { green: 30, yellow: 38, brown: 12, black: 2, white: 5, orange: 13 },
+            spotProfile: { count: 'few', size: 4 },
+            varianceRange: [30, 55],
+            description: 'Papaya Ringspot Virus (PRSV) is transmitted by aphids, causing leaf mosaic, narrow shoestring leaves, and dark green rings on fruits.',
+            symptoms: ['Yellow mosaic patterns on leaves', 'Severe leaf narrowing (shoestring effect)', 'Water-soaked dark green streaks on petioles', 'Concentric ring spots on fruits'],
+            chemical: ['Foliar spray of dimethoate or imidacloprid to suppress aphid vector population'],
+            organic: ['Remove and destroy infected plants immediately', 'Intercrop with maize or mustard as barrier crops', 'Neem oil spray to deter aphid vectors'],
+            prevention: ['Grow PRSV-resistant varieties', 'Control aphid vector early', 'Keep surroundings weed-free'],
+            recoveryTime: 'Recovery unlikely (remove plant)',
+            immediateAction: 'Cut down infected papaya tree, bag it, and burn it to prevent virus spread.'
+        }
+    ],
+    groundnut: [
+        {
+            name: 'Early Leaf Spot', severity: 'Moderate',
+            colorFP: { green: 40, yellow: 20, brown: 30, black: 4, white: 2, orange: 4 },
+            spotProfile: { count: 'many', size: 2.2 },
+            varianceRange: [40, 60],
+            description: 'Early leaf spot caused by Cercospora arachidicola produces subcircular dark brown spots with distinct yellow halos on the upper leaf surface.',
+            symptoms: ['Circular dark brown spots on leaves', 'Distinct yellow halo around spots', 'Lesions appear on both leaf surfaces', 'Severe infection leads to leaf shedding'],
+            chemical: ['Carbendazim 50% WP — 1g/liter', 'Mancozeb 75% WP — 2.5g/liter', 'Tebuconazole 25.9% EC — 1ml/liter'],
+            organic: ['Foliar spray of neem seed kernel extract (NSKE) 5%', 'Apply Trichoderma viride to soil', 'Remove crop residue post-harvest'],
+            prevention: ['Crop rotation with cereals', 'Timely sowing', 'Treat seeds with thiram or carbendazim before planting'],
+            recoveryTime: '10-14 Days',
+            immediateAction: 'Spray Carbendazim or Mancozeb fungicide to prevent defoliation.'
+        }
+    ]
+};
+
+/* ===================== TOAST ===================== */
+function showToast(message, type = 'warning') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 350);
+    }, 3000);
+}
+
+/* ===================== CROP GRID ===================== */
+function renderCropGrid() {
+    const grid = document.getElementById('cropGrid');
+    
+    // Group crops by category
+    const categories = {};
+    crops.forEach(c => {
+        if (!categories[c.category]) {
+            categories[c.category] = [];
+        }
+        categories[c.category].push(c);
+    });
+
+    const categoryIcons = {
+        'Fruit Crops': '🍎',
+        'Vegetable Crops': '🥕',
+        'Oilseed Crops': '🌱'
+    };
+
+    let html = '';
+    for (const [catName, catCrops] of Object.entries(categories)) {
+        const catIcon = categoryIcons[catName] || '🌱';
+        html += `
+            <div class="category-group">
+                <h4 class="text-sm font-bold mb-3 flex items-center gap-2 border-b pb-1.5 border-[var(--border)]" style="color: var(--primary);">
+                    <span class="text-base">${catIcon}</span> ${catName}
+                </h4>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-6">
+                    ${catCrops.map(c => `
+                        <div class="crop-card relative flex flex-col justify-between" data-crop="${c.id}" onclick="selectCrop('${c.id}')" tabindex="0"
+                             role="button" aria-label="Select ${c.name}"
+                             onkeydown="if(event.key==='Enter')selectCrop('${c.id}')">
+                            <!-- Selected indicator checkmark -->
+                            <div class="crop-selected-badge absolute top-2 right-2 w-5 h-5 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center opacity-0 transition-opacity duration-200">
+                                <i class="fa-solid fa-check"></i>
+                            </div>
+                            <div class="my-auto flex flex-col items-center">
+                                <span class="crop-icon text-3xl mb-1">${c.icon}</span>
+                                <p class="crop-name text-sm font-extrabold">${c.name}</p>
+                            </div>
+                            <p class="crop-sub text-[10px] font-bold text-gray-500">Select</p>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    grid.innerHTML = html;
+}
+
+function selectCrop(id) {
+    selectedCrop = id;
+    document.querySelectorAll('.crop-card').forEach(card => {
+        const isSelected = card.dataset.crop === id;
+        card.classList.toggle('selected', isSelected);
+        
+        // Show/hide select badge checkmark icon
+        const badge = card.querySelector('.crop-selected-badge');
+        if (badge) {
+            badge.style.opacity = isSelected ? '1' : '0';
+        }
+        
+        // Update selection sub-text dynamically
+        const sub = card.querySelector('.crop-sub');
+        if (sub) {
+            sub.textContent = isSelected ? '✓ Selected' : 'Select';
+            if (isSelected) {
+                sub.style.color = 'var(--primary)';
+                sub.style.fontWeight = '800';
+            } else {
+                sub.style.color = 'var(--muted)';
+                sub.style.fontWeight = '600';
+            }
+        }
+    });
+    document.getElementById('toStep2Btn').disabled = false;
+}
+
+/* ===================== STEP NAVIGATION ===================== */
+function goToStep(step) {
+    if (step === 2 && !selectedCrop) { showToast('Please select a crop first'); return; }
+
+    document.getElementById('step1').style.display = step === 1 ? 'block' : 'none';
+    document.getElementById('step2').style.display = step === 2 ? 'block' : 'none';
+    document.getElementById('step3').style.display = step === 3 ? 'block' : 'none';
+
+    // Update step dots
+    for (let i = 1; i <= 3; i++) {
+        const dot = document.getElementById('dot' + i);
+        dot.classList.remove('active', 'done');
+        if (i < step) { dot.classList.add('done'); dot.innerHTML = '<i class="fa-solid fa-check text-xs"></i>'; }
+        else if (i === step) { dot.classList.add('active'); dot.textContent = i; }
+        else { dot.textContent = i; }
+    }
+    for (let i = 1; i <= 2; i++) {
+        document.getElementById('line' + i).classList.toggle('done', i < step);
+    }
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ===================== FILE UPLOAD ===================== */
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', (e) => {
+    if (!e.target.closest('#previewContainer') && !e.target.closest('#uploadActions')) fileInput.click();
+});
+uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', (e) => {
+    e.preventDefault(); uploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+function handleFile(file) {
+    if (!file.type.startsWith('image/')) { showToast('Please upload an image file', 'error'); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast('Image is too large. Max 10MB.', 'error'); return; }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        uploadedImageSrc = e.target.result;
+        const img = document.getElementById('previewImg');
+        img.src = uploadedImageSrc;
+        img.onload = () => {
+            document.getElementById('uploadPlaceholder').style.display = 'none';
+            document.getElementById('previewContainer').style.display = 'block';
+            document.getElementById('uploadActions').style.display = 'flex';
+            uploadZone.classList.add('has-image');
+            
+            // Adjust spot canvas overlay dimensions to match current image layout size
+            const sc = document.getElementById('spotCanvas');
+            sc.width = img.clientWidth;
+            sc.height = img.clientHeight;
+            sc.getContext('2d').clearRect(0, 0, sc.width, sc.height);
+        };
+    };
+    reader.readAsDataURL(file);
+}
+
+function resetUpload() {
+    uploadedImageSrc = null;
+    document.getElementById('uploadPlaceholder').style.display = 'block';
+    document.getElementById('previewContainer').style.display = 'none';
+    document.getElementById('uploadActions').style.display = 'none';
+    const steps = document.getElementById('aiLoadingSteps');
+    if (steps) steps.style.display = 'none';
+    uploadZone.classList.remove('has-image');
+    fileInput.value = '';
+    document.getElementById('scanStatus').style.display = 'none';
+    const sc = document.getElementById('spotCanvas');
+    if (sc) sc.getContext('2d').clearRect(0, 0, sc.width, sc.height);
+}
+
+/* ===================== IMAGE ANALYSIS ===================== */
+function classifyPixel(r, g, b) {
+    const brightness = (r + g + b) / 3;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max === 0 ? 0 : (max - min) / max;
+
+    if (brightness < 40) return 'black';
+    if (brightness > 210 && saturation < 0.12) return 'white';
+    if (saturation < 0.08) return 'white';
+
+    // Green dominant
+    if (g > r * 1.05 && g > b * 1.15 && g > 50 && saturation > 0.12) return 'green';
+
+    // Yellow
+    if (r > 130 && g > 120 && b < 100 && (r - b) > 50 && g > b * 1.3) return 'yellow';
+
+    // Orange
+    if (r > 160 && g > 60 && g < 170 && b < 80 && r > g * 1.2) return 'orange';
+
+    // Red (for red tomato/chili fruits or leaf sections)
+    if (r > 120 && g < 80 && b < 80 && r > g * 1.5) return 'red';
+
+    // Brown
+    if (r > 60 && g > 30 && b < 90 && r > b * 1.3 && g > b && g < r) return 'brown';
+
+    return 'other'; // Return other for invalid/non-plant colors (e.g. blue, purple, magenta)
+}
+
+function analyzeImage(img) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) {
+        return {
+            colorDist: { other: 100, green: 0, yellow: 0, brown: 0, black: 0, white: 0, orange: 0, red: 0 },
+            variance: 0,
+            spotCount: 0,
+            avgSpotSize: 0,
+            totalSpotCells: 0,
+            grid: Array.from({length: 25}, () => Array(25).fill(0)),
+            gridSize: 25,
+            cellW: 10,
+            cellH: 10,
+            w: 250,
+            h: 250
+        };
+    }
+    const canvas = document.getElementById('analysisCanvas');
+    const ctx = canvas.getContext('2d');
+    const maxDim = 400;
+    const scale = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight, 1);
+    canvas.width = Math.floor(img.naturalWidth * scale);
+    canvas.height = Math.floor(img.naturalHeight * scale);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const w = canvas.width, h = canvas.height;
+
+    // Color distribution
+    const counts = { green: 0, yellow: 0, brown: 0, black: 0, white: 0, orange: 0, red: 0, other: 0 };
+    const greenValues = [];
+    const totalPixels = w * h;
+
+    for (let i = 0; i < data.length; i += 4) {
+        const cat = classifyPixel(data[i], data[i+1], data[i+2]);
+        counts[cat]++;
+        greenValues.push(data[i+1]);
+    }
+
+    // Convert to percentages
+    const colorDist = {};
+    for (const k in counts) colorDist[k] = (counts[k] / totalPixels) * 100;
+
+    // Green channel variance
+    const mean = greenValues.reduce((a, b) => a + b, 0) / greenValues.length;
+    const variance = Math.sqrt(greenValues.reduce((s, v) => s + (v - mean) ** 2, 0) / greenValues.length);
+
+    // Spot detection via grid
+    const gridSize = 25;
+    const cellW = Math.max(1, Math.floor(w / gridSize));
+    const cellH = Math.max(1, Math.floor(h / gridSize));
+    const grid = [];
+
+    for (let gy = 0; gy < gridSize; gy++) {
+        grid[gy] = [];
+        for (let gx = 0; gx < gridSize; gx++) {
+            // Sample multiple pixels per cell
+            let greenCount = 0, totalSampled = 0;
+            for (let sy = 0; sy < 3; sy++) {
+                for (let sx = 0; sx < 3; sx++) {
+                    const px = Math.min(gx * cellW + Math.floor(sx * cellW / 3), w - 1);
+                    const py = Math.min(gy * cellH + Math.floor(sy * cellH / 3), h - 1);
+                    const idx = (py * w + px) * 4;
+                    const cat = classifyPixel(data[idx], data[idx+1], data[idx+2]);
+                    totalSampled++;
+                    if (cat === 'green') greenCount++;
+                }
+            }
+            grid[gy][gx] = (greenCount / totalSampled) < 0.5 ? 1 : 0; // 1 = diseased cell
+        }
+    }
+
+    // Count spots (connected components)
+    const visited = Array.from({length: gridSize}, () => Array(gridSize).fill(false));
+    let spotCount = 0, totalSpotCells = 0;
+    for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+            if (grid[y][x] === 1 && !visited[y][x]) {
+                const queue = [[x, y]];
+                visited[y][x] = true;
+                let size = 0;
+                while (queue.length > 0) {
+                    const [cx, cy] = queue.shift();
+                    size++;
+                    for (const [dx, dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+                        const nx = cx + dx, ny = cy + dy;
+                        if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize && !visited[ny][nx] && grid[ny][nx] === 1) {
+                            visited[ny][nx] = true;
+                            queue.push([nx, ny]);
+                        }
+                    }
+                }
+                if (size >= 1) { spotCount++; totalSpotCells += size; }
+            }
+        }
+    }
+    const avgSpotSize = spotCount > 0 ? totalSpotCells / spotCount : 0;
+
+    // --- Enhanced metrics for better AI differentiation ---
+    
+    // 1. Dominant damage color (most frequent non-green color)
+    const damageColors = { yellow: counts.yellow, brown: counts.brown, black: counts.black, orange: counts.orange, red: counts.red, white: counts.white };
+    const dominantDamageColor = Object.entries(damageColors).sort((a, b) => b[1] - a[1])[0][0];
+    
+    // 2. Edge vs Center damage ratio
+    let edgeDamaged = 0, edgeTotal = 0, centerDamaged = 0, centerTotal = 0;
+    const edgeThreshold = Math.floor(gridSize * 0.2);
+    for (let gy = 0; gy < gridSize; gy++) {
+        for (let gx = 0; gx < gridSize; gx++) {
+            const isEdge = gy < edgeThreshold || gy >= gridSize - edgeThreshold || gx < edgeThreshold || gx >= gridSize - edgeThreshold;
+            if (isEdge) { edgeTotal++; if (grid[gy][gx] === 1) edgeDamaged++; }
+            else { centerTotal++; if (grid[gy][gx] === 1) centerDamaged++; }
+        }
+    }
+    const edgeDamageRatio = edgeTotal > 0 ? (edgeDamaged / edgeTotal * 100) : 0;
+    const centerDamageRatio = centerTotal > 0 ? (centerDamaged / centerTotal * 100) : 0;
+    
+    // 3. Texture uniformity (how evenly spread the damage is)
+    const damagedCellCount = totalSpotCells;
+    const totalCells = gridSize * gridSize;
+    const textureUniformity = spotCount > 0 ? (avgSpotSize / totalCells * 100) : 0;
+    
+    // 4. Color transition sharpness (indicates concentric rings / target spots)
+    let sharpTransitions = 0;
+    for (let i = 4; i < data.length; i += 4) {
+        const diff = Math.abs(data[i+1] - data[i+1-4]); // green channel difference between adjacent pixels
+        if (diff > 60) sharpTransitions++;
+    }
+    const transitionDensity = (sharpTransitions / totalPixels * 100);
+
+    return { colorDist, variance, spotCount, avgSpotSize, totalSpotCells, grid, gridSize, cellW, cellH, w, h, dominantDamageColor, edgeDamageRatio, centerDamageRatio, textureUniformity, transitionDensity };
+}
+
+/* ===================== DISEASE MATCHING ===================== */
+function matchDiseases(analysis, cropId) {
+    const candidates = [];
+    const diseases = diseaseDB[cropId] || [];
+
+    // Add healthy candidate
+    candidates.push({ ...diseaseDB.healthy, isHealthy: true });
+
+    // Add disease candidates
+    diseases.forEach(d => candidates.push({ ...d, isHealthy: false }));
+
+    // Score each candidate
+    candidates.forEach(cand => {
+        let colorScore = 0, patternScore = 0, varianceScore = 0;
+
+        // Color similarity (0-40 points)
+        const colorKeys = ['green', 'yellow', 'brown', 'black', 'white', 'orange'];
+        let totalColorDiff = 0;
+        colorKeys.forEach(k => {
+            totalColorDiff += Math.abs((analysis.colorDist[k] || 0) - (cand.colorFP[k] || 0));
+        });
+        colorScore = Math.max(0, 40 - totalColorDiff * 0.8);
+
+        // Pattern match (0-30 points)
+        let countDiff = 0;
+        if (cand.spotProfile.count === 'none') {
+            countDiff = analysis.spotCount; // strong penalty for spots if none expected
+        } else if (cand.spotProfile.count === 'few') {
+            countDiff = Math.abs(analysis.spotCount - 4);
+        } else if (cand.spotProfile.count === 'many') {
+            countDiff = Math.max(0, 10 - analysis.spotCount);
+        }
+        const spotCountScore = Math.max(0, 15 - countDiff * 1.5);
+
+        let sizeDiff = Math.abs(analysis.avgSpotSize - cand.spotProfile.size);
+        const spotSizeScore = cand.spotProfile.size === 0 && analysis.avgSpotSize === 0 ? 15 : Math.max(0, 15 - sizeDiff * 3);
+
+        patternScore = spotCountScore + spotSizeScore;
+
+        // Variance match (0-30 points)
+        const [vMin, vMax] = cand.varianceRange;
+        if (analysis.variance >= vMin && analysis.variance <= vMax) {
+            varianceScore = 30;
+        } else {
+            const dist = analysis.variance < vMin ? vMin - analysis.variance : analysis.variance - vMax;
+            varianceScore = Math.max(0, 30 - dist * 2);
+        }
+
+        cand.matchScore = Math.round(colorScore + patternScore + varianceScore);
+    });
+
+    // Sort by match score descending
+    candidates.sort((a, b) => b.matchScore - a.matchScore);
+    return candidates;
+}
+
+/* ===================== SCAN & RUN ANALYSIS ===================== */
+function startAnalysis() {
+    if (!uploadedImageSrc) {
+        showToast('Please upload an image first', 'error');
+        return;
+    }
+
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    analyzeBtn.disabled = true;
+
+    const scanContainer = document.getElementById('scanContainer');
+    scanContainer.classList.add('scanning');
+
+    const scanStatus = document.getElementById('scanStatus');
+    scanStatus.textContent = 'Initializing AI scan...';
+    scanStatus.style.display = 'block';
+
+    const img = document.getElementById('previewImg');
+    const sc = document.getElementById('spotCanvas');
+    
+    // Set matching canvas layout size
+    sc.width = img.clientWidth;
+    sc.height = img.clientHeight;
+    
+    const ctx = sc.getContext('2d');
+    ctx.clearRect(0, 0, sc.width, sc.height);
+
+    // Compute pixel data
+    const analysis = analyzeImage(img);
+
+    // Validate if the image is a valid plant leaf/part
+    const leafColorsSum = (analysis.colorDist.green || 0) + (analysis.colorDist.yellow || 0) + (analysis.colorDist.orange || 0) + (analysis.colorDist.red || 0) + (analysis.colorDist.brown || 0);
+    const otherColors = analysis.colorDist.other || 0;
+    
+    // If the leaf colors are extremely low or non-leaf colors are extremely high
+    if (leafColorsSum < 12 && otherColors > 40) {
+        scanContainer.classList.remove('scanning');
+        analyzeBtn.disabled = false;
+        scanStatus.style.display = 'none';
+        
+        showToast("Invalid Image: Please upload a clear photo of a crop leaf or plant.", "error");
+        
+        const container = document.getElementById('resultsContainer');
+        container.innerHTML = `
+            <div class="result-card text-center py-10 border-red-200 bg-red-50/50">
+                <i class="fa-solid fa-triangle-exclamation text-4xl text-[var(--danger)] mb-4 animate-bounce"></i>
+                <h4 class="text-xl font-bold mb-2 text-red-900">Invalid Leaf Image Detected</h4>
+                <p class="text-sm max-w-md mx-auto text-red-700">We couldn't detect plant patterns or leaf colors in this image. Please upload a clear close-up photo of a valid crop leaf (e.g. Tomato, Chili, Banana, Potato, Orange, Papaya, Groundnut).</p>
+                <button class="btn-primary mt-6 text-sm" onclick="resetUpload(); goToStep(2);">
+                    <i class="fa-solid fa-arrow-left mr-2"></i> Try Another Image
+                </button>
+            </div>
+        `;
+        goToStep(3);
+        return;
+    }
+
+    // Reset progress steps
+    document.getElementById('aiLoadingSteps').style.display = 'block';
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('loadStep' + i);
+        if (el) {
+            const badge = el.querySelector('span:first-child');
+            const text = el.querySelector('span:last-child');
+            badge.className = "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-200 text-gray-400";
+            badge.innerHTML = i;
+            text.className = "font-semibold text-gray-400";
+        }
+    }
+
+    // Run timed sequence of steps for futuristic effect
+    const sequence = [
+        { time: 0, text: 'Uploading leaf image...', action: () => {
+            setLoadingStep(1, 'active');
+            spawnDataPoint('SYS: SCANNING');
+        }},
+        { time: 800, text: 'AI processing features...', action: () => {
+            setLoadingStep(1, 'done');
+            setLoadingStep(2, 'active');
+            spawnDataPoint(`GREEN: ${Math.round(analysis.colorDist.green)}%`);
+            spawnDataPoint(`YELLOW: ${Math.round(analysis.colorDist.yellow)}%`);
+        }},
+        { time: 1600, text: 'Identifying lesion coordinates...', action: () => {
+            setLoadingStep(2, 'done');
+            setLoadingStep(3, 'active');
+            spawnDataPoint(`BROWN: ${Math.round(analysis.colorDist.brown)}%`);
+            
+            // Draw grid dots on overlay
+            const cellW = sc.width / analysis.gridSize;
+            const cellH = sc.height / analysis.gridSize;
+            ctx.fillStyle = 'rgba(212, 146, 11, 0.3)';
+            ctx.strokeStyle = 'rgba(212, 146, 11, 0.6)';
+            ctx.lineWidth = 1;
+            for (let y = 0; y < analysis.gridSize; y++) {
+                for (let x = 0; x < analysis.gridSize; x++) {
+                    if (analysis.grid[y][x] === 1) {
+                        ctx.fillRect(x * cellW, y * cellH, cellW, cellH);
+                        ctx.strokeRect(x * cellW, y * cellH, cellW, cellH);
+                    }
+                }
+            }
+            spawnDataPoint(`LESIONS: ${analysis.spotCount}`);
+        }},
+        { time: 2400, text: 'Generating diagnostic report...', action: () => {
+            setLoadingStep(3, 'done');
+            setLoadingStep(4, 'active');
+            spawnDataPoint('COMPILING...');
+        }},
+        { time: 3200, text: 'Analysis complete!', action: () => {
+            setLoadingStep(4, 'done');
+            
+            // Extract base64 image for server-side ML model
+            let imageBase64 = '';
+            try {
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                const maxSend = 800; // Resize to max 800px for API
+                const sendScale = Math.min(maxSend / img.naturalWidth, maxSend / img.naturalHeight, 1);
+                tempCanvas.width = Math.floor(img.naturalWidth * sendScale);
+                tempCanvas.height = Math.floor(img.naturalHeight * sendScale);
+                tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
+                const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.85);
+                imageBase64 = dataUrl.split(',')[1];
+            } catch(e) { console.warn('Could not extract base64 image:', e); }
+
+            const payload = {
+                crop: selectedCrop,
+                language: selectedLanguage,
+                imageBase64: imageBase64,
+                colorDist: analysis.colorDist,
+                spotCount: analysis.spotCount,
+                avgSpotSize: analysis.avgSpotSize,
+                variance: analysis.variance,
+                dominantDamageColor: analysis.dominantDamageColor,
+                edgeDamageRatio: analysis.edgeDamageRatio,
+                centerDamageRatio: analysis.centerDamageRatio,
+                textureUniformity: analysis.textureUniformity,
+                transitionDensity: analysis.transitionDensity
+            };
+            
+            fetch('/api/diagnose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => {
+                if (!res.ok) throw new Error('API server returned error ' + res.status);
+                return res.json();
+            })
+            .then(data => {
+                scanContainer.classList.remove('scanning');
+                analyzeBtn.disabled = false;
+                showResults([data]);
+                goToStep(3);
+            })
+            .catch(err => {
+                console.error("DeepSeek API error:", err);
+                showToast("DeepSeek offline: falling back to local database", "warning");
+                
+                const results = matchDiseases(analysis, selectedCrop);
+                scanContainer.classList.remove('scanning');
+                analyzeBtn.disabled = false;
+                showResults(results);
+                goToStep(3);
+            });
+        }}
+    ];
+
+    sequence.forEach(step => {
+        setTimeout(() => {
+            scanStatus.textContent = step.text;
+            if (step.action) step.action();
+        }, step.time);
+    });
+}
+
+function setLoadingStep(num, state) {
+    const el = document.getElementById('loadStep' + num);
+    if (!el) return;
+    const badge = el.querySelector('span:first-child');
+    const text = el.querySelector('span:last-child');
+    if (state === 'active') {
+        badge.className = "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-emerald-100 text-[var(--primary)] border border-emerald-300";
+        badge.innerHTML = '<i class="fa-solid fa-circle-notch animate-spin"></i>';
+        text.className = "font-bold text-[var(--primary)]";
+    } else if (state === 'done') {
+        badge.className = "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--primary)] text-white";
+        badge.innerHTML = '<i class="fa-solid fa-check"></i>';
+        text.className = "font-semibold text-gray-700";
+    }
+}
+
+function loadDemoLeaf(cropId) {
+    selectCrop(cropId);
+    goToStep(2);
+    const demoFiles = {
+        tomato: 'tomato_leaf_disease_1782293336589.png',
+        banana: 'banana_leaf_demo.png',
+        potato: 'potato_leaf_demo.png'
+    };
+    const fileName = demoFiles[cropId] || 'tomato_leaf_disease_1782293336589.png';
+    showToast(`Loading ${cropId} demo leaf...`, 'success');
+    fetch(fileName)
+        .then(res => {
+            if (!res.ok) throw new Error("File not found");
+            return res.blob();
+        })
+        .then(blob => {
+            const file = new File([blob], `${cropId}_demo_leaf.png`, {type: 'image/png'});
+            handleFile(file);
+        })
+        .catch(err => {
+            console.error("Error loading demo leaf:", err);
+            showToast("Failed to load demo leaf. Please upload manually.", "error");
+        });
+}
+
+function downloadPDFReport() {
+    window.print();
+}
+
+function spawnDataPoint(text) {
+    const container = document.getElementById('scanContainer');
+    const dp = document.createElement('div');
+    dp.className = 'data-point';
+    dp.textContent = text;
+    
+    // Position randomly within overlay limits
+    const x = Math.random() * 70 + 15;
+    const y = Math.random() * 70 + 15;
+    dp.style.left = `${x}%`;
+    dp.style.top = `${y}%`;
+    
+    container.appendChild(dp);
+    setTimeout(() => dp.remove(), 1800);
+}
+
+/* ===================== RENDER DIAGNOSIS RESULTS ===================== */
+function showResults(matches) {
+    const container = document.getElementById('resultsContainer');
+    container.innerHTML = '';
+
+    if (!matches || matches.length === 0 || !matches[0]) {
+        container.innerHTML = `
+            <div class="result-card text-center py-10">
+                <i class="fa-solid fa-triangle-exclamation text-4xl text-[var(--accent)] mb-3"></i>
+                <p class="text-lg font-semibold" style="color: var(--fg);">Unable to scan leaf patterns accurately.</p>
+                <p class="text-sm mt-1" style="color: var(--muted);">Please try uploading a clearer image.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const ensureArray = (val) => {
+        if (!val) return [];
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') return [val];
+        return [];
+    };
+
+    const topMatch = matches[0];
+    const topName = topMatch.name || 'Unknown Condition';
+    const isHealthy = topMatch.isHealthy !== undefined ? topMatch.isHealthy : topName.toLowerCase().includes('healthy');
+    const severity = topMatch.severity || (isHealthy ? 'Healthy' : 'Moderate');
+    const matchScore = topMatch.matchScore || 100;
+    const description = topMatch.description || 'No description available for this condition.';
+
+    const symptoms = ensureArray(topMatch.symptoms);
+    const organic = ensureArray(topMatch.organic);
+    const chemical = ensureArray(topMatch.chemical);
+    const prevention = ensureArray(topMatch.prevention);
+    
+    const recoveryTime = topMatch.recoveryTime || (isHealthy ? 'N/A' : '7-14 Days');
+    const immediateAction = topMatch.immediateAction || (isHealthy ? 'No immediate action required.' : 'Spray fungicide.');
+
+    let severityClass = 'severity-healthy';
+    let mappedSeverity = 'Healthy';
+    if (severity === 'Mild' || severity === 'Low') {
+        severityClass = 'severity-mild';
+        mappedSeverity = 'Low';
+    } else if (severity === 'Moderate' || severity === 'Medium') {
+        severityClass = 'severity-moderate';
+        mappedSeverity = 'Moderate';
+    } else if (severity === 'Severe' || severity === 'High') {
+        severityClass = 'severity-severe';
+        mappedSeverity = 'High';
+    }
+
+    let accuracyText = 'High';
+    let accuracyColor = 'color: var(--primary);';
+    if (matchScore < 50) {
+        accuracyText = 'Low';
+        accuracyColor = 'color: var(--danger);';
+    } else if (matchScore < 80) {
+        accuracyText = 'Moderate';
+        accuracyColor = 'color: var(--accent);';
+    }
+
+    const cropObj = crops.find(c => c.id === selectedCrop);
+    const cropName = cropObj ? cropObj.name : 'Unknown Crop';
+
+    const topCard = document.createElement('div');
+    topCard.className = 'result-card';
+    topCard.innerHTML = `
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 mb-5 border-[var(--border)]">
+            <div>
+                <span class="text-xs uppercase font-bold tracking-wider" style="color: var(--muted);">Crop & Disease Diagnostic</span>
+                <h4 class="text-2xl font-bold mt-1" style="color: ${isHealthy ? 'var(--primary)' : 'var(--fg)'};"><span class="text-gray-400 font-semibold">${cropName}</span> &mdash; ${topName}</h4>
+            </div>
+            <div class="flex flex-wrap items-center gap-6">
+                <div class="text-right md:text-left">
+                    <span class="text-xs uppercase font-bold tracking-wider block" style="color: var(--muted);">AI Confidence</span>
+                    <span class="text-2xl font-black block" style="color: var(--primary);">${matchScore}%</span>
+                </div>
+                <div class="text-right md:text-left">
+                    <span class="text-xs uppercase font-bold tracking-wider block" style="color: var(--muted);">Prediction Accuracy</span>
+                    <span class="text-sm font-bold block" style="${accuracyColor}">${accuracyText}</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 3-Column Metrics Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8" id="printMetricsGrid">
+            <div class="bg-white/80 p-5 rounded-2xl border border-[var(--border)] shadow-sm hover:shadow-md transition-all duration-300">
+                <span class="text-[10px] uppercase font-black tracking-widest block text-gray-400">Disease Severity</span>
+                <div class="mt-2.5">
+                    <span class="severity-badge ${severityClass} inline-block">${mappedSeverity}</span>
+                </div>
+            </div>
+            <div class="bg-white/80 p-5 rounded-2xl border border-[var(--border)] shadow-sm hover:shadow-md transition-all duration-300">
+                <span class="text-[10px] uppercase font-black tracking-widest block text-gray-400">Recovery Time</span>
+                <span class="text-xl font-black block mt-2 text-[var(--primary)]">${recoveryTime}</span>
+            </div>
+            <div class="bg-white/80 p-5 rounded-2xl border border-[var(--border)] shadow-sm hover:shadow-md transition-all duration-300">
+                <span class="text-[10px] uppercase font-black tracking-widest block text-gray-400">Recommended Action</span>
+                <span class="text-xs font-bold block mt-2 text-gray-800 leading-relaxed">${immediateAction}</span>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-6" id="printDetailsGrid">
+            <div class="md:col-span-3 space-y-5">
+                <div>
+                    <h5 class="font-bold text-sm uppercase tracking-wider mb-1" style="color: var(--muted);">Disease Overview</h5>
+                    <p class="text-sm leading-relaxed">${description}</p>
+                </div>
+                
+                <div>
+                    <h5 class="font-bold text-sm uppercase tracking-wider mb-2" style="color: var(--muted);">Observed Symptoms</h5>
+                    <ul class="space-y-2">
+                        ${symptoms.length > 0 ? symptoms.map(s => `
+                            <li class="text-sm flex items-start gap-2">
+                                <i class="fa-solid fa-circle-check text-xs mt-1" style="color: ${isHealthy ? 'var(--primary)' : 'var(--accent)'};"></i>
+                                <span>${s}</span>
+                            </li>
+                        `).join('') : `
+                            <li class="text-sm flex items-start gap-2">
+                                <i class="fa-solid fa-circle-check text-xs mt-1" style="color: var(--primary);"></i>
+                                <span>No symptoms documented.</span>
+                            </li>
+                        `}
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="md:col-span-2 border-t md:border-t-0 md:border-l pt-6 md:pt-0 md:pl-6 border-[var(--border)]">
+                <h5 class="font-bold text-sm uppercase tracking-wider mb-3 text-center md:text-left" style="color: var(--muted);">Treatment Recommendations</h5>
+                
+                <!-- Tab headers -->
+                <div class="flex gap-2 mb-4 justify-center md:justify-start">
+                    <button class="tab-btn px-3 py-1.5 text-xs active" id="tab-organic" onclick="switchTreatmentTab('organic')">🌿 Organic</button>
+                    <button class="tab-btn px-3 py-1.5 text-xs" id="tab-chemical" onclick="switchTreatmentTab('chemical')">🧪 Chemical</button>
+                    <button class="tab-btn px-3 py-1.5 text-xs" id="tab-prevention" onclick="switchTreatmentTab('prevention')">🛡️ Prevention</button>
+                </div>
+                
+                <!-- Tab contents -->
+                <div id="tabContent-organic" class="tab-content space-y-2">
+                    ${organic.length > 0 ? organic.map(item => `
+                        <div class="flex items-start gap-2 text-sm bg-[var(--success-light)] p-2.5 rounded-lg border border-[#e2edd8]">
+                            <i class="fa-solid fa-leaf text-xs mt-1" style="color: var(--primary);"></i>
+                            <span>${item}</span>
+                        </div>
+                    `).join('') : `
+                        <div class="flex items-start gap-2 text-sm bg-[var(--success-light)] p-2.5 rounded-lg border border-[#e2edd8]">
+                            <i class="fa-solid fa-leaf text-xs mt-1" style="color: var(--primary);"></i>
+                            <span>No organic treatment details available.</span>
+                        </div>
+                    `}
+                </div>
+                
+                <div id="tabContent-chemical" class="tab-content space-y-2" style="display:none;">
+                    ${chemical.length > 0 ? chemical.map(item => `
+                        <div class="flex items-start gap-2 text-sm bg-orange-50 p-2.5 rounded-lg border border-orange-100">
+                            <i class="fa-solid fa-flask text-xs mt-1" style="color: var(--accent);"></i>
+                            <span>${item}</span>
+                        </div>
+                    `).join('') : `
+                        <div class="flex items-start gap-2 text-sm bg-orange-50 p-2.5 rounded-lg border border-orange-100">
+                            <i class="fa-solid fa-flask text-xs mt-1" style="color: var(--accent);"></i>
+                            <span>No chemical treatment details available.</span>
+                        </div>
+                    `}
+                </div>
+                
+                <div id="tabContent-prevention" class="tab-content space-y-2" style="display:none;">
+                    ${prevention.length > 0 ? prevention.map(item => `
+                        <div class="flex items-start gap-2 text-sm bg-blue-50 p-2.5 rounded-lg border border-blue-100">
+                            <i class="fa-solid fa-shield-halved text-xs mt-1" style="color: #3b82f6;"></i>
+                            <span>${item}</span>
+                        </div>
+                    `).join('') : `
+                        <div class="flex items-start gap-2 text-sm bg-blue-50 p-2.5 rounded-lg border border-blue-100">
+                            <i class="fa-solid fa-shield-halved text-xs mt-1" style="color: #3b82f6;"></i>
+                            <span>No prevention practices details available.</span>
+                        </div>
+                    `}
+                </div>
+            </div>
+        </div>
+    `;
+    container.appendChild(topCard);
+
+    // Render Secondary Matches
+    const secondaryMatches = matches.slice(1).filter(m => m && m.matchScore > 20);
+    if (secondaryMatches.length > 0) {
+        const secondaryContainer = document.createElement('div');
+        secondaryContainer.className = 'mt-8';
+        secondaryContainer.innerHTML = `
+            <h4 class="text-lg font-bold mb-4 flex items-center gap-2" style="color: var(--muted);">
+                <i class="fa-solid fa-magnifying-glass-chart"></i> Other Diagnostic Possibilities
+            </h4>
+            <div class="space-y-3">
+                ${secondaryMatches.map((m, idx) => {
+                    const name = m.name || 'Unknown Condition';
+                    const mSeverity = m.severity || 'Moderate';
+                    const mScore = m.matchScore || 0;
+                    const mDesc = m.description || '';
+                    const mOrganic = ensureArray(m.organic);
+                    const mPrevention = ensureArray(m.prevention);
+                    const mAction = mOrganic[0] || mPrevention[0] || 'No treatment details available.';
+
+                    let sevClass = 'severity-healthy';
+                    if (mSeverity === 'Mild') sevClass = 'severity-mild';
+                    if (mSeverity === 'Moderate') sevClass = 'severity-moderate';
+                    if (mSeverity === 'Severe') sevClass = 'severity-severe';
+                    
+                    return `
+                        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 transition-all duration-300">
+                            <div class="flex items-center justify-between gap-4 cursor-pointer" onclick="toggleDetails(${idx})">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-sm font-bold w-12 text-right" style="color: var(--primary);">${mScore}%</span>
+                                    <span class="font-bold text-base">${name}</span>
+                                    <span class="severity-badge ${sevClass} text-[11px] px-2.5 py-0.5">${mSeverity}</span>
+                                </div>
+                                <i class="fa-solid fa-chevron-down text-sm transition-transform duration-300" id="chevron-${idx}"></i>
+                            </div>
+                            
+                            <!-- Detailed collapsible view -->
+                            <div id="details-${idx}" class="mt-4 pt-4 border-t border-[var(--border)] space-y-3 hidden animate-slide">
+                                <p class="text-sm text-gray-700 leading-relaxed">${mDesc}</p>
+                                <div>
+                                    <h6 class="font-bold text-xs uppercase tracking-wider mb-1.5" style="color: var(--muted);">Suggested Action</h6>
+                                    <div class="flex items-start gap-2 text-sm bg-[var(--success-light)] p-2.5 rounded-lg border border-[#e2edd8]">
+                                        <i class="fa-solid fa-leaf text-xs mt-1" style="color: var(--primary);"></i>
+                                        <span>${mAction}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+        container.appendChild(secondaryContainer);
+    }
+}
+
+function switchTreatmentTab(tab) {
+    // Remove active class from all tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+    
+    // Activate target
+    document.getElementById(`tab-${tab}`).classList.add('active');
+    document.getElementById(`tabContent-${tab}`).style.display = 'block';
+}
+
+function toggleDetails(index) {
+    const details = document.getElementById(`details-${index}`);
+    const chevron = document.getElementById(`chevron-${index}`);
+    
+    if (details.classList.contains('hidden')) {
+        details.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+    } else {
+        details.classList.add('hidden');
+        chevron.style.transform = 'rotate(0deg)';
+    }
+}
+
+/* ===================== RESET APP STATE ===================== */
+function resetApp() {
+    selectedCrop = null;
+    uploadedImageSrc = null;
+
+    // Reset crop selection grid UI
+    document.querySelectorAll('.crop-card').forEach(card => {
+        card.classList.remove('selected');
+        const badge = card.querySelector('.crop-selected-badge');
+        if (badge) badge.style.opacity = '0';
+        const sub = card.querySelector('.crop-sub');
+        if (sub) {
+            sub.textContent = 'Select';
+            sub.style.color = 'var(--muted)';
+            sub.style.fontWeight = '600';
+        }
+    });
+    document.getElementById('toStep2Btn').disabled = true;
+
+    // Reset upload area
+    resetUpload();
+
+    // Move to step 1
+    goToStep(1);
+}
+
+function fillAndAsk(text) {
+    const input = document.getElementById('qaInput');
+    if (input) {
+        input.value = text;
+        askCropDoctor();
+    }
+}
+
+/* ===================== AI Q&A ASSISTANT ===================== */
+function askCropDoctor() {
+    const query = document.getElementById('qaInput').value.trim();
+    if (!query) {
+        showToast('Please type a question first', 'warning');
+        return;
+    }
+    
+    const askBtn = document.getElementById('askDoctorBtn');
+    const container = document.getElementById('qaResponseContainer');
+    const responseText = document.getElementById('qaResponseText');
+    
+    askBtn.disabled = true;
+    askBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin mr-1"></i> Assistant is thinking...';
+    
+    container.classList.remove('hidden');
+    responseText.innerHTML = '<div class="flex items-center gap-2 text-[var(--muted)]"><i class="fa-solid fa-seedling animate-bounce"></i> Consulting agricultural pathology database...</div>';
+    
+    fetch('/api/ask', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ question: query, language: selectedLanguage })
+    })
+    .then(res => {
+        if (!res.ok) throw new Error('API server returned error ' + res.status);
+        return res.json();
+    })
+    .then(data => {
+        askBtn.disabled = false;
+        askBtn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i> Ask Assistant';
+        responseText.innerHTML = data.answer;
+    })
+    .catch(err => {
+        console.error("Q&A Error:", err);
+        showToast("Unable to connect to AI assistant", "error");
+        
+        askBtn.disabled = false;
+        askBtn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i> Ask Assistant';
+        responseText.innerHTML = '<span class="text-red-700 font-semibold"><i class="fa-solid fa-circle-exclamation mr-1"></i> Offline Error: The Crop AI Assistant is currently unreachable. Make sure python server.py is running.</span>';
+    });
+}
+
+/* ===================== INIT ===================== */
+window.addEventListener('DOMContentLoaded', () => {
+    applyConfig();
+    renderCropGrid();
+});
+</script>
+</body>
+</html>
